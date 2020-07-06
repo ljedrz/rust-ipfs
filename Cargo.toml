@@ -38,6 +38,8 @@ async-stream = "0.2.1"
 prost-build = "0.6.1"
 
 [dev-dependencies]
+cid = "0.4"
+criterion = "0.3"
 env_logger = "0.7.1"
 sha2 = "0.8.1"
 hex-literal = "0.2.1"
@@ -47,6 +49,10 @@ members = [ "bitswap", "http", "unixfs" ]
 
 [patch.crates-io]
 ctr = { git = "https://github.com/koivunej/stream-ciphers.git", branch = "ctr128-64to128" }
+
+[[bench]]
+name = "fetch_and_cat"
+harness = false
 
 # at least these libp2p components need to be patched if you want to use a local version
 # libp2p = { path = "../libp2p" }
