@@ -5,6 +5,7 @@ use structopt::StructOpt;
 use ipfs::{Ipfs, IpfsOptions, IpfsTypes, UninitializedIpfs};
 use ipfs_http::{config, v0};
 use parity_multiaddr::{Multiaddr, Protocol};
+use tokio_compat_02::FutureExt;
 
 #[macro_use]
 extern crate tracing;
@@ -132,54 +133,57 @@ fn main() {
 
     let rt = tokio::runtime::Runtime::new().expect("Failed to create event loop");
 
-    rt.block_on(async move {
-        let opts = IpfsOptions {
-            ipfs_path: home.clone(),
-            keypair: config.keypair,
-            bootstrap: Vec::new(),
-            mdns: false,
-            kad_protocol: None,
-            listening_addrs: config.swarm,
-            span: None,
-        };
+    rt.block_on(
+        async move {
+            let opts = IpfsOptions {
+                ipfs_path: home.clone(),
+                keypair: config.keypair,
+                bootstrap: Vec::new(),
+                mdns: false,
+                kad_protocol: None,
+                listening_addrs: config.swarm,
+                span: None,
+            };
 
-        let (ipfs, task): (Ipfs<ipfs::Types>, _) = UninitializedIpfs::new(opts)
-            .start()
-            .await
-            .expect("Initialization failed");
-
-        tokio::spawn(task);
-
-        let api_link_file = home.join("api");
-
-        let (addr, server) = serve(&ipfs, config.api_addr);
-
-        // shutdown future will handle signalling the exit
-        drop(ipfs);
-
-        // We can't simply reuse the address from the config as the test profile uses ephemeral
-        // ports.
-        let api_multiaddr = format!("/ip4/{}/tcp/{}", addr.ip(), addr.port());
-
-        // this file is looked for when js-ipfsd-ctl checks optimistically if the IPFS_PATH has a
-        // daemon running already. go-ipfs file does not contain newline at the end.
-        let wrote = tokio::fs::write(&api_link_file, &api_multiaddr)
-            .await
-            .is_ok();
-
-        println!("API listening on {}", api_multiaddr);
-        println!("daemon is running");
-
-        server.await;
-
-        if wrote {
-            // FIXME: this should probably make sure the contents match what we wrote or do some
-            // locking on the repo, unsure how go-ipfs locks the fsstore
-            let _ = tokio::fs::File::create(&api_link_file)
+            let (ipfs, task): (Ipfs<ipfs::Types>, _) = UninitializedIpfs::new(opts)
+                .start()
                 .await
-                .map_err(|e| info!("Failed to truncate {:?}: {}", api_link_file, e));
+                .expect("Initialization failed");
+
+            tokio::spawn(task);
+
+            let api_link_file = home.join("api");
+
+            let (addr, server) = serve(&ipfs, config.api_addr);
+
+            // shutdown future will handle signalling the exit
+            drop(ipfs);
+
+            // We can't simply reuse the address from the config as the test profile uses ephemeral
+            // ports.
+            let api_multiaddr = format!("/ip4/{}/tcp/{}", addr.ip(), addr.port());
+
+            // this file is looked for when js-ipfsd-ctl checks optimistically if the IPFS_PATH has a
+            // daemon running already. go-ipfs file does not contain newline at the end.
+            let wrote = tokio::fs::write(&api_link_file, &api_multiaddr)
+                .await
+                .is_ok();
+
+            println!("API listening on {}", api_multiaddr);
+            println!("daemon is running");
+
+            server.await;
+
+            if wrote {
+                // FIXME: this should probably make sure the contents match what we wrote or do some
+                // locking on the repo, unsure how go-ipfs locks the fsstore
+                let _ = tokio::fs::File::create(&api_link_file)
+                    .await
+                    .map_err(|e| info!("Failed to truncate {:?}: {}", api_link_file, e));
+            }
         }
-    });
+        .compat(),
+    );
 
     info!("Shutdown complete");
 }
